@@ -151,6 +151,34 @@ class Locator:
         """Return a list of URLs for a given distribution"""
         raise NotImplemented
 
+class DictLocator(Locator):
+    def __init__(self, dct):
+        self.dct = dct
+        self.dists = {}
+    def add_dist(self, dist):
+        ret = defaultdict(lambda: defaultdict(list))
+        for filename in self.dct[dist]:
+            ftype, d, ver = parse_filename(filename, dist)
+            if ftype:
+                ret[ver][ftype].append(filename)
+        self.dists[dist] = ret
+    def distributions(self):
+        return self.dct.keys()
+    def versions(self, dist):
+        if not dist in self.dists:
+            try:
+                self.add_dist(dist)
+            except KeyError:
+                return []
+        return self.dists[dist].keys()
+    def files(self, dist, ver):
+        if not dist in self.dists:
+            try:
+                self.add_dist(dist)
+            except KeyError:
+                return []
+        return self.dists[dist][ver]
+
 class DirectoryLocator(Locator):
     def __init__(self, path, recurse=False):
         self.path = Path(path)
