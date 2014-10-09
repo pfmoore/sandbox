@@ -14,6 +14,8 @@ Use Cases
 4. Report wininst and egg files that can usefully be converted into wheels
    for a project (i.e., there is no corresponding wheel)
 5. Report projects with no released versions.
+6. Get a wheel for a project, either by download or wheel convert of a
+   wininst or egg.
 
 Extensions
 ----------
