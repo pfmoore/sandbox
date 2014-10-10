@@ -1,11 +1,13 @@
 import re
 import wheel.egg2wheel
 from wheel.install import WheelFile, BadWheelFile
+from packaging.version import Version, LegacyVersion, InvalidVersion
 
 #### Regular expressions
 # Groups name, ver, pyver, arch
 EGG_RE = wheel.egg2wheel.egg_info_re
 # Matches a PEP 440 version (taken from packaging/version.py)
+# VERSION_RE_STR = packaging.version.Version._regex.pattern.strip().lstrip('^').rstrip('$')
 VERSION_RE_STR = r"""
     \s*
     v?
@@ -96,10 +98,21 @@ def parse_egg_filename(filename):
     return m.group('name'), m.group('ver'), m.group('pyver'), m.group('arch')
 
 def parse_sdist_filename(filename):
-    m = SDIST_RE.match(filename)
-    if not m:
+    sdist_exts = re.compile(r'\.(?:zip|tar\.gz|tar\.bz2|tgz|tar)$', re.IGNORECASE)
+    filename, n = sdist_exts.subn('', filename)
+    if n == 0:
         raise ValueError("Sdist filename {} is not valid".format(filename))
-    return m.group('name'), m.group('ver'), '', ''
+    # Try to find a standard version first, if not then a legacy version
+    for ver_type in (Version, LegacyVersion):
+        for m in re.finditer('-', filename):
+            name, ver = filename[:m.start(0)], filename[m.end(0):]
+            try:
+                v = ver_type(ver)
+                return name, ver, '', ''
+            except InvalidVersion:
+                pass
+    # Couldn't find either. Give up.
+    raise ValueError("Sdist filename {} is not valid".format(filename))
 
 file_types = [
     ('wheel', '.whl', parse_wheel_filename),
