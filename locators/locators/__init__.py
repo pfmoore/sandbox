@@ -16,6 +16,7 @@ from urllib.request import urlopen
 import posixpath
 from pathlib import Path
 from collections import defaultdict
+from wheel.install import WheelFile, BadWheelFile
 
 try:
     import requests
@@ -71,21 +72,24 @@ VERSION_RE = re.compile(
 session = None
 
 def open_url(url):
-    if requests:
-        global session
-        if session is None:
-            session = requests.session()
-            if CacheControl:
-                session = CacheControl(session)
-        rsp = session.get(url, stream=True)
-        return rsp.raw
+    # if requests:
+    #     global session
+    #     if session is None:
+    #         session = requests.session()
+    #         if CacheControl:
+    #             session = CacheControl(session)
+    #     rsp = session.get(url, stream=True)
+    #     return rsp.raw
 
     return urlopen(url)
 
 def scrape_links(url):
     with open_url(url) as f:
-        tree = ElementTree.parse(f)
-    return [a.attrib['href'] for a in tree.iter('a')]
+        try:
+            tree = ElementTree.parse(f)
+        except ElementTree.ParseError:
+            raise RuntimeError("Invalid content in "+url)
+    return [a.attrib['href'] for a in tree.iter('a') if a.attrib.get('rel') == 'internal']
 
 # Filename utilities
 extensions = (
@@ -100,6 +104,7 @@ def url_basename(url):
     return posixpath.basename(u.path)
 
 def parse_filename(filename, distname=None):
+    print("Parsing", filename, distname)
     if distname is None:
         distname = filename.partition('-')[0]
     dist_norm = distname.lower().replace('-', '_')
@@ -107,6 +112,7 @@ def parse_filename(filename, distname=None):
 
     # Check file is for this distribution
     if not file_norm.startswith(dist_norm):
+        print("Wrong distribution")
         return None, None, None
 
     # Check it is a known file type
@@ -115,13 +121,24 @@ def parse_filename(filename, distname=None):
             ftype = filetype
             break
     else:
+        print("Unknown file type")
         return None, None, None
+
+    if ftype == 'wheel':
+        try:
+            wf = WheelFile(filename)
+        except BadWheelFile as e:
+            print("Bad wheel file", e)
+            return None, None, None
+        return ftype, wf.parsed_filename.group('name'), wf.parsed_filename.group('ver')
 
     # Check the version is valid
     m = VERSION_RE.match(filename, len(distname)+1)
     if not m:
+        print("Invalid version")
         return None, None, None
 
+    print("OK:", ftype, m.group(0))
     return ftype, dist_norm, m.group(0)
 
 class Locator:
@@ -255,6 +272,16 @@ class SimpleLocator(Locator):
             if filetype:
                 ret.append(version)
         return sorted(set(ret))
+    def get(self, distribution, ver):
+        links = scrape_links(self.url + distribution)
+        ret = defaultdict(list)
+        for url in links:
+            filename = url_basename(url)
+            filetype, name, version = parse_filename(filename, distribution)
+            if version != ver:
+                continue
+            ret[filetype].append(url)
+        return ret
 
 # XMLRPC doesn't normalise names
 # django and requests have versions with no urls
